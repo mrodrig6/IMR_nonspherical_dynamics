@@ -47,7 +47,11 @@ def default_parameters(Ca=50.0, Re=35.0, We=45.0, alpha=0.1) -> dict:
 
 
 def _trajectory(params, *, t, R, Rd, Rdd, mode, xN, L=5.0, Req=1.0,
-                ep0=0.0, epd0=0.0, closure="rot", remat=True):
+                ep0=0.0, epd0=0.0, closure="rot", model="me", remat=True):
+    jb.check_supported(model=model, closure=closure)
+    missing = {"Ca", "Re", "We", "alpha"} - set(params)
+    if missing:
+        raise ValueError(f"params is missing {sorted(missing)}; see default_parameters()")
     x_np = computational_grid(xN)
     h = grid_spacing(x_np)
     x = jnp.asarray(x_np)

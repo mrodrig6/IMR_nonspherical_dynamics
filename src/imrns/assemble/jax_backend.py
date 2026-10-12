@@ -122,6 +122,33 @@ def _upwind(c, Df, Db):
     return jnp.maximum(c, 0.0)[:, None] * Df + jnp.minimum(c, 0.0)[:, None] * Db
 
 
+SUPPORTED_MODEL = "me"
+SUPPORTED_CLOSURES = ("rot", "irr")
+
+
+def check_supported(model: str = SUPPORTED_MODEL, closure: str = "rot", forced_ep: bool = False):
+    """Reject configurations this backend does not implement.
+
+    The JAX path covers the ``"me"`` model with either closure and a solved
+    amplitude, which is what every bundled case uses.  The ``"pros"`` model and
+    prescribed amplitudes are implemented only in the NumPy and Numba backends.
+    Falling through to the ``"me"`` assembly for them would return confident
+    wrong gradients, so they are refused here instead.
+    """
+    if model != SUPPORTED_MODEL:
+        raise NotImplementedError(
+            f"the jax backend implements only the {SUPPORTED_MODEL!r} model, not {model!r}. "
+            "Use backend='numpy' or 'numba' for that model; gradients are not available for it."
+        )
+    if closure not in SUPPORTED_CLOSURES:
+        raise ValueError(f"closure must be one of {SUPPORTED_CLOSURES}, got {closure!r}")
+    if forced_ep:
+        raise NotImplementedError(
+            "the jax backend does not implement prescribed-amplitude (forced_ep) runs. "
+            "Use backend='numpy' or 'numba'; gradients are not available for them."
+        )
+
+
 def assemble_lhs(n, xN, closure, beta0, dt, R, Rd, Rdd, Req, L, inv_Ca, inv_Re, inv_We,
                  alpha, x, ops):
     """Build ``beta0 I - dt A`` for one mode, with boundary conditions applied.
@@ -129,7 +156,10 @@ def assemble_lhs(n, xN, closure, beta0, dt, R, Rd, Rdd, Req, L, inv_Ca, inv_Re, 
     ``ops`` is ``(H1, H2, H3, W, w, One_wT, Df, Db)`` as JAX arrays.  Returns
     ``(lhs, bc_rows)``; ``bc_rows`` are the indices whose right-hand side must
     be zeroed, which :func:`step_once` applies.
+
+    Only the ``"me"`` model is implemented; see :func:`check_supported`.
     """
+    check_supported(closure=closure)
     H1, H2, H3, W, w, One_wT, Df, Db = ops
     m = _metrics(x, R, Rd, Req, L)
     r, rs, vs, sr = m["r"], m["rs"], m["vs"], m["sr"]

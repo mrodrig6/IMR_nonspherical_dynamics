@@ -108,3 +108,27 @@ def test_jax_trajectory_matches_the_reference_solver():
         method=1,  # the differentiable path uses backward Euler throughout
     )
     np.testing.assert_allclose(ep_jax, ref.ep[0], rtol=1e-9, atol=1e-14)
+
+
+@pytest.mark.parametrize("kwargs,exc", [
+    ({"model": "pros"}, NotImplementedError),
+    ({"closure": "bogus"}, ValueError),
+])
+def test_unsupported_configurations_are_refused(kwargs, exc):
+    """The JAX path must refuse what it does not implement, not approximate it.
+
+    Falling through to the "me" assembly for the "pros" model would return
+    confident wrong gradients, which is worse than no gradients.
+    """
+    from imrns.sensitivity import amplitude_trajectory, default_parameters
+
+    cfg = _setup(n_steps=20)
+    with pytest.raises(exc):
+        amplitude_trajectory(default_parameters(), **{**cfg, **kwargs})
+
+
+def test_incomplete_parameter_dict_is_refused():
+    from imrns.sensitivity import amplitude_trajectory
+
+    with pytest.raises(ValueError, match="missing"):
+        amplitude_trajectory({"Ca": 50.0}, **_setup(n_steps=20))
