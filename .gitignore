@@ -84,3 +84,23 @@ data.zip
 
 # Local comparison scripts
 FEM_comparisons.m
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Simulation output
+*.npz
+
+# Regression fixtures are version controlled.  The 'data/' rule above excludes
+# the whole directory, and git will not descend into an excluded directory, so
+# the directory itself has to be re-included before the files can be.
+!tests/data/
+!tests/data/*.npz

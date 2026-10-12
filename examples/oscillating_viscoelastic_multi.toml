@@ -1,0 +1,31 @@
+name = "oscillating_viscoelastic_multi"
+description = "sinusoidal radial oscillation about equilibrium; Kelvin-Voigt solid: finite viscosity and stiffness; three modes"
+
+modes = [5, 8, 11]
+ep0 = [0.075, -0.085, 0.05]
+epd0 = [0.0, 0.0, 0.0]
+
+[material]
+rho = 1048.0
+p_inf = 101325.0
+sigma = 0.056
+mu = 0.015
+G = 2000.0
+alpha = 0.1
+
+[drive]
+kind = "sinusoidal"
+Rmax = 5e-05
+Req = 5e-05
+t_end = 20.0
+n_steps = 5000
+amplitude = 0.1
+omega = 6.283185
+
+[numerics]
+xN = 256
+L = 5.0
+model = "me"
+closure = "rot"
+method = 2
+backend = "numpy"

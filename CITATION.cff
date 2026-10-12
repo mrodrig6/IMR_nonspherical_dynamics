@@ -2,15 +2,23 @@ cff-version: 1.2.0
 message: "If you use this software, please cite it using the metadata below."
 title: "IMR Nonspherical Dynamics"
 type: software
+version: "0.1.0"
 authors:
   - name: "Inertial Microcavitation Rheometry"
-abstract: "MATLAB code for simulating small-amplitude nonspherical perturbations of an inertial microcavitation bubble in a soft material."
+abstract: >-
+  Python solver for small-amplitude nonspherical perturbations of an inertial
+  microcavitation bubble in a soft viscoelastic material. Given a spherical
+  radial history, it evolves the spherical-harmonic amplitudes of the interface
+  together with the rotational field each mode drives in the surrounding
+  medium. Provides NumPy, Numba and JAX backends, the last supporting exact
+  parameter sensitivities by automatic differentiation.
 license: GPL-3.0-only
 repository-code: "https://github.com/InertialMicrocavitationRheometry/IMR_nonspherical_dynamics"
 url: "https://github.com/InertialMicrocavitationRheometry/IMR_nonspherical_dynamics"
 keywords:
-  - MATLAB
+  - Python
   - inertial microcavitation rheometry
   - bubble dynamics
   - nonspherical perturbations
   - viscoelasticity
+  - automatic differentiation
