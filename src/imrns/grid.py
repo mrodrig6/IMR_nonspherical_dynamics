@@ -86,9 +86,26 @@ def d3xdr3(x: np.ndarray, R: float, L: float) -> tuple[np.ndarray, np.ndarray, n
 
 
 def grid_velocity(x: np.ndarray, R: float, Rd: float, L: float) -> np.ndarray:
-    """Velocity of the moving grid, ``-(dx/dt)|_r`` in the transformed domain.
+    """Velocity of the moving grid: the speed physical points drift through it.
 
-    This is what converts ``d/dt|_x`` into ``d/dt|_r``.
+    A node of constant ``x`` sits at ``r = R(t) g(x)``, so it is at neither a
+    fixed physical location nor a fixed material point.  The time-stepper
+    advances nodal values -- ``d/dt|_x`` -- while the governing equations are
+    written with ``d/dt|_r``.  The two are related, for *any* field, by the
+    Arbitrary Lagrangian-Eulerian identity
+
+        dphi/dt|_x = dphi/dt|_r + a dphi/dx
+
+    and this function returns ``a``.  Equivalently ``a = -(dx/dt)|_r``: the rate
+    at which a fixed physical point drifts through the computational grid,
+    signed to act as a transport velocity in the right-hand-side form
+    ``phi_t = ... + a phi_x``.
+
+    This is kinematics, with no modelling content -- it is not an empirical
+    correction, and it is not optional: without it the scheme integrates the
+    wrong equation whenever the wall moves.  ``docs/moving-grid.md`` gives the
+    three-line derivation and the numerical evidence; ``tests/test_moving_grid.py``
+    pins it.
     """
     return Rd / R * (1.0 - x) ** 2 / (2.0 * L) * (1.0 + L * (1.0 + x) / (1.0 - x))
 

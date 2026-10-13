@@ -257,8 +257,19 @@ def add_moving_grid_terms(A, idx, metrics, model, aadv=None):
 
     From ``matlab_legacy/common/f_modify_A_bulk_map.m``.  The map ``r(x, R(t))``
     moves with the wall, so ``d/dt|_x`` and ``d/dt|_r`` differ by a transport
-    term.  For model ``"me"`` the correction lands on the ``V`` rows; for
-    ``"pros"``, which has no separate ``V``, it lands on ``T``.
+    term ``a d/dx`` -- the ALE identity, see :func:`imrns.grid.grid_velocity`.
+    Applied once per state variable: :func:`assemble_block` puts it on the ``T``
+    rows (where it transforms the definition of ``V``), and this puts it on the
+    rows that carry ``V``'s own evolution.  Coefficient 1 in both places.
+
+    For model ``"pros"``, which has no separate ``V``, it lands on ``T``.
+
+    Note for anyone comparing against the MATLAB: that file's docstring claims
+    four terms, ``(a_t - a a_x) T_x + 2a V_x - a^2 T_xx``.  That is correct
+    mathematics for the superseded convention ``V = dT/dt|_x``; under the
+    implemented convention ``V = dT/dt|_r`` three of them collapse and only
+    ``a V_x`` remains.  ``docs/moving-grid.md`` works this through, and
+    ``tests/test_moving_grid.py`` verifies the two forms are the same equation.
     """
     Aadv = upwind_advection(metrics.a, metrics.h) if aadv is None else aadv
     target = idx.V_sl if model == "me" else idx.T_sl

@@ -24,8 +24,8 @@ dependencies = [
 numba = ["numba>=0.59"]
 jax = ["jax>=0.4.30"]
 plot = ["matplotlib>=3.7"]
-test = ["pytest>=7.4"]
-all = ["numba>=0.59", "jax>=0.4.30", "matplotlib>=3.7", "pytest>=7.4"]
+test = ["pytest>=7.4", "sympy>=1.12"]
+all = ["numba>=0.59", "jax>=0.4.30", "matplotlib>=3.7", "pytest>=7.4", "sympy>=1.12"]
 
 [project.scripts]
 imrns = "imrns.cli:main"

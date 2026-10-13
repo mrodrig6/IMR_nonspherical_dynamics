@@ -88,6 +88,12 @@ Numerically: the domain `r in [R, inf)` is mapped to `x in [-1, 1)` by
 differences and trapezoidal quadrature for the integral kernels; time with
 backward Euler on the first step and variable-step BDF2 thereafter.
 
+Because the map is anchored to `R(t)`, the grid moves, and the nodal time
+derivative the stepper advances differs from the Eulerian one by an
+Arbitrary Lagrangian–Eulerian transport term. That term is kinematics, not a
+modelling choice; [`docs/moving-grid.md`](docs/moving-grid.md) derives it and
+shows what breaks without it.
+
 ### Nondimensionalisation
 
 Lengths by the equilibrium radius, pressure by ambient. Everything is derived
