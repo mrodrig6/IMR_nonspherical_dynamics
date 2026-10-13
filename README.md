@@ -61,6 +61,7 @@ Or from the command line:
 imrns list                                            # the bundled cases
 imrns info examples/free_viscoelastic_multi.toml      # parameters and groups
 imrns run  examples/free_viscoelastic_multi.toml -o out.npz
+imrns run  examples/free_viscoelastic_multi.toml --figure strain.pdf
 ```
 
 ## The model
@@ -194,6 +195,49 @@ Two details make this work, both verified against finite differences in
 The differentiable path uses backward Euler throughout; use
 `solve_perturbation` for production trajectories and this module for gradients.
 
+## Fields and figures
+
+The solver returns modal amplitudes and the rotational field;
+`imrns.postprocess` turns those into displacement, strain, strain-rate and
+stress fields in the medium.
+
+```python
+from imrns.postprocess import FieldSpec, snapshot_grid, field_slice
+
+spec = FieldSpec(measure="almansi", scalar="ert")
+snapshot_grid(result, L=5.0, output="strain.pdf", spec=spec, n_frames=12)
+
+X, Z, C = field_slice(result, frame=400, L=5.0, spec=spec)   # build your own figure
+```
+
+| `measure` | field |
+| --- | --- |
+| `almansi` | Eulerian Almansi strain `e = (I - B⁻¹)/2` (default) |
+| `small` | symmetric displacement gradient |
+| `strain_rate` | rate of deformation `D` |
+| `stress` | `σ = G(1 + α(I_B - 3))B + 2μD - PI` |
+
+`scalar` picks a component (`err`, `ert`, …) or an invariant (`frobenius`,
+`trace`, `max_principal`, `signed_maxabs_principal`).
+
+Physics and rendering are separate modules: `fields.py` returns arrays and
+imports no plotting library, `render.py` draws them. In the MATLAB the two were
+interleaved across 2769 lines, which left the reconstruction untestable on its
+own — it is now checked against the exact incompressible base solution to
+`1e-13` and against the known nodal structure of each harmonic.
+
+Two things worth knowing before trusting a figure:
+
+- **Strain rate and stress need a well-resolved run.** They are built from the
+  solver's `T` field, so the divergence of the reconstructed velocity — zero
+  for a truly incompressible medium — is a resolution diagnostic. It converges
+  with `xN`, not with the plotting grid, and is worst within about half a
+  radius of the wall. Use `xN >= 256` for these.
+- **Diverging fields are drawn on limits symmetric about zero**, with a
+  colormap whose two arms have identical luminance profiles, so equal
+  magnitudes of either sign read as equally intense and the sign is carried by
+  hue alone. Unsigned scalars get a sequential map instead.
+
 ## Constitutive models
 
 Material behaviour enters through one interface,
@@ -241,6 +285,9 @@ src/imrns/
   sensitivity.py     differentiable trajectories
   colormaps.py       the colormaps the MATLAB tree referenced but never shipped
   cli.py
+  postprocess/
+    fields.py        displacement, strain, strain rate, stress -- arrays only
+    render.py        matplotlib: slices, snapshot grids, animations
 examples/            18 cases as TOML, replacing 18 three-line scripts
 tests/
 matlab_legacy/       the original MATLAB, unmodified and unmaintained
@@ -319,13 +366,13 @@ the moving-grid advection, so the second-time-derivative substitution uses the
 uncorrected operator. The ordering is load-bearing and is commented as such in
 both the NumPy and JAX backends.
 
-## Not in this port yet
+## Not ported
 
-The 2769-line visualisation module
-(`matlab_legacy/common/make_axisym_displacement_movie_all_fields.m`) — strain,
-strain-rate and stress field rendering — has not been ported. It is a separate
-piece of work, and the physics and rendering parts of it want separating rather
-than transcribing.
+The MATLAB visualiser's deformed-mesh overlays (`FEM_grid`, `GridType`,
+`pushed_forward_raw` and the remeshing options around them) are not carried
+over. They are a visual overlay on top of the field, not part of it, and the
+several hundred lines they occupied are better rewritten than transcribed. The
+field rendering itself is ported.
 
 ## Citation
 

@@ -138,6 +138,42 @@ loop.
   about 1.5x at small drift between steps, and worse than refactorising at
   realistic drift.
 
+## The visualisation module
+
+`make_axisym_displacement_movie_all_fields.m` was 2769 lines with 70+
+name-value options and about 70 local functions, mixing field reconstruction
+with matplotlib-equivalent drawing. It is split in the port:
+`postprocess/fields.py` returns arrays and imports no plotting library,
+`postprocess/render.py` draws them. That split is what makes the physics
+testable: the reconstruction is now checked against the exact incompressible
+base solution (`1e-13`) and the known nodal structure of each spherical
+harmonic, neither of which could be asserted while the two were interleaved.
+
+Two changes of substance rather than form:
+
+- **The base radial velocity's derivative is taken analytically.** The MATLAB
+  differenced the whole velocity field on the plotting grid, so `D_rr` carried
+  that grid's truncation error even for a perfectly spherical bubble. Only the
+  modal part is differenced now, and an unperturbed bubble gives the exact
+  incompressible answer at any plotting resolution.
+- **The diverging colormap was rebuilt with symmetric luminance.** `cmap/` was
+  never committed, so the ramp had to be written from the README's one clue
+  (the `#4E3629` midpoint). The first version differed by a factor of 3.3 in
+  luminance between its arms at the half-way point, which would have made
+  compressive strain look far stronger than tensile strain of equal magnitude.
+  The arms now share one luminance profile and the sign is carried by hue.
+
+Not carried over: the deformed-mesh overlays (`FEM_grid`, `GridType`,
+`GridCircleSpacing`, `pushed_forward_raw` and the remeshing around them). They
+draw a visual grid on top of the field rather than contributing to it.
+
+A diagnostic worth recording: the divergence of the reconstructed velocity,
+which would be zero for an exactly incompressible medium, is a measure of the
+**solver's** radial resolution. It falls with `xN` and does not fall with the
+plotting grid, and it is concentrated within about half a radius of the wall.
+Strain-rate and stress figures therefore need `xN >= 256`;
+`tests/test_postprocess.py` pins the convergence.
+
 ## Verification strategy
 
 Neither MATLAB nor Octave is used. The hand-expanded coefficients are the only

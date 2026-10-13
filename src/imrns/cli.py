@@ -1,6 +1,8 @@
 """Command-line interface.
 
     imrns run examples/free_viscoelastic_single.toml
+    imrns run examples/free_viscoelastic_multi.toml --figure strain.pdf
+    imrns run examples/free_viscoelastic_multi.toml --movie strain.gif
     imrns list
     imrns info examples/lic_viscoelastic_multi.toml
 """
@@ -43,6 +45,23 @@ def _cmd_run(args) -> int:
         out.parent.mkdir(parents=True, exist_ok=True)
         result.save(out)
         print(f"  wrote {out}")
+
+    if args.figure or args.movie:
+        from .postprocess.render import FieldSpec, animate, snapshot_grid
+
+        spec = FieldSpec(measure=args.measure, scalar=args.scalar,
+                         G=config.material.G, mu=config.material.mu,
+                         alpha=config.material.alpha)
+        if args.figure:
+            path = Path(args.figure)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            snapshot_grid(rot, config.numerics.L, path, spec, n_frames=args.frames)
+            print(f"  wrote {path}")
+        if args.movie:
+            path = Path(args.movie)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            animate(rot, config.numerics.L, path, spec, n_frames=max(args.frames, 40))
+            print(f"  wrote {path}")
     return 0
 
 
@@ -87,6 +106,17 @@ def main(argv=None) -> int:
     run.add_argument("--no-compare", action="store_true",
                      help="skip the irrotational comparison run")
     run.add_argument("--progress", action="store_true")
+    run.add_argument("--figure", metavar="PATH",
+                     help="write a grid of field snapshots (.pdf, .png, ...)")
+    run.add_argument("--movie", metavar="PATH",
+                     help="write an animation (.gif, or .mp4 if ffmpeg is available)")
+    run.add_argument("--measure", default="almansi",
+                     choices=["almansi", "small", "strain_rate", "stress"],
+                     help="which field to draw (default: almansi)")
+    run.add_argument("--scalar", default="ert",
+                     help="component or invariant to draw (default: ert)")
+    run.add_argument("--frames", type=int, default=12,
+                     help="number of snapshot panels / movie frames")
     run.set_defaults(func=_cmd_run)
 
     lst = sub.add_parser("list", help="list the bundled cases")
