@@ -58,15 +58,15 @@ from ..grid import computational_grid, drdx as _drdx, radius as _radius
 from ..operators import trapezoid_matrices
 
 __all__ = [
+    "SCALAR_ALIASES",
     "ModalField",
     "build_modal_field",
-    "harmonics",
     "displacement_gradient",
-    "strain_components",
+    "harmonics",
     "rate_of_strain_components",
+    "strain_components",
     "stress_components",
     "tensor_scalar",
-    "SCALAR_ALIASES",
 ]
 
 # Below this, sin(theta) is clamped so the polar axis does not divide by zero.
@@ -215,7 +215,7 @@ def build_modal_field(result, frame: int, L: float, Rref: float = 1.0,
     they are computed analytically from the solver's own ``Td`` and ``Rd``
     rather than by differencing saved frames.
     """
-    T, ep, R, t = result.T, result.ep, result.R, result.t
+    T, ep, R = result.T, result.ep, result.R
     modes = result.modes
     xN = T.shape[1]
     it = int(frame)

@@ -34,8 +34,15 @@ from ..colormaps import get as get_colormap
 from .fields import (build_modal_field, rate_of_strain_components, strain_components,
                      stress_components, tensor_scalar)
 
-__all__ = ["FieldSpec", "field_slice", "plot_frame", "snapshot_grid", "animate",
-           "pick_frames", "symmetric_limits"]
+__all__ = [
+    "FieldSpec",
+    "animate",
+    "field_slice",
+    "pick_frames",
+    "plot_frame",
+    "snapshot_grid",
+    "symmetric_limits",
+]
 
 UNSIGNED_SCALARS = {"frobenius", "norm", "magnitude", "maxabs_component",
                     "max_abs_component", "component_max"}
