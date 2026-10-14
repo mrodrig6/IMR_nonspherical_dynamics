@@ -36,3 +36,6 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 filterwarnings = ["error::RuntimeWarning"]
+markers = [
+    "slow: needs an optional backend (numba/jax) or takes more than a second; CI runs `-m 'not slow'`",
+]

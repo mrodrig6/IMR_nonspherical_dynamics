@@ -1,5 +1,7 @@
 # IMR Nonspherical Dynamics
 
+[![CI](https://github.com/mrodrig6/IMR_nonspherical_dynamics/actions/workflows/ci.yml/badge.svg)](https://github.com/mrodrig6/IMR_nonspherical_dynamics/actions/workflows/ci.yml)
+
 Small-amplitude nonspherical perturbations of an inertial microcavitation
 bubble in a soft viscoelastic material.
 
@@ -323,8 +325,13 @@ for such a history and say so if run without one.
 
 ```bash
 pip install -e '.[all]'
-PYTHONPATH=src pytest
+pytest                  # everything, about a minute
+pytest -m "not slow"    # skips the numba/jax checks, about 13 seconds
 ```
+
+CI runs the lint and the fast subset on every push. The `slow` marker covers
+the tests that need an optional backend; almost all of their time is JIT
+compilation, not computation. Run the full suite locally before a release.
 
 The suite is built around the fact that there is no written derivation of the
 model — the hand-expanded MATLAB expressions are the only statement of it. So

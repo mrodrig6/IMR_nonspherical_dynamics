@@ -10,7 +10,10 @@ import pytest
 
 from imrns.backends import available_backends
 
-pytestmark = pytest.mark.skipif("jax" not in available_backends(), reason="jax not installed")
+pytestmark = [
+    pytest.mark.skipif("jax" not in available_backends(), reason="jax not installed"),
+    pytest.mark.slow,
+]
 
 
 def _setup(n_steps=60):

@@ -48,6 +48,7 @@ def _numpy_lhs(n, dt, closure):
     return lhs
 
 
+@pytest.mark.slow
 @pytest.mark.skipif("numba" not in available_backends(), reason="numba not installed")
 @pytest.mark.parametrize("closure", ["rot", "irr"])
 def test_numba_matches_numpy_end_to_end(closure):
@@ -61,6 +62,7 @@ def test_numba_matches_numpy_end_to_end(closure):
     np.testing.assert_allclose(b.T, a.T, rtol=1e-12, atol=1e-15)
 
 
+@pytest.mark.slow
 @pytest.mark.skipif("jax" not in available_backends(), reason="jax not installed")
 @pytest.mark.parametrize("n,closure", [(5, "rot"), (8, "rot"), (5, "irr")])
 def test_jax_assembles_the_same_operator(n, closure):
