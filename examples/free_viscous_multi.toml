@@ -1,0 +1,29 @@
+name = "free_viscous_multi"
+description = "constant radius, no radial forcing; viscous liquid: finite viscosity, no elasticity; three modes"
+
+modes = [5, 8, 11]
+ep0 = [0.075, -0.085, 0.05]
+epd0 = [0.0, 0.0, 0.0]
+
+[material]
+rho = 1048.0
+p_inf = 101325.0
+sigma = 0.056
+mu = 0.015
+G = 0.0
+alpha = 0.0
+
+[drive]
+kind = "free"
+Rmax = 5e-05
+Req = 5e-05
+t_end = 12.0
+n_steps = 3000
+
+[numerics]
+xN = 256
+L = 5.0
+model = "me"
+closure = "rot"
+method = 2
+backend = "numpy"

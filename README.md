@@ -1,350 +1,399 @@
 # IMR Nonspherical Dynamics
 
-MATLAB code for simulating small-amplitude nonspherical perturbations of an
-inertial microcavitation bubble in a soft material.
+[![CI](https://github.com/mrodrig6/IMR_nonspherical_dynamics/actions/workflows/ci.yml/badge.svg)](https://github.com/mrodrig6/IMR_nonspherical_dynamics/actions/workflows/ci.yml)
 
-The current repository is organized around one runnable driver script,
-`s_basic_simulation.m`, and a set of shared solver, numerical, and visualization
-functions in `common/`. The driver computes a radial bubble history, evolves a
-nonspherical spherical-harmonic perturbation, compares irrotational and
-rotational perturbation models, and exports a strain-field snapshot PDF.
+Small-amplitude nonspherical perturbations of an inertial microcavitation
+bubble in a soft viscoelastic material.
 
-## Current Capabilities
+Given a radial history `R(t)` of a spherical bubble, the solver evolves the
+spherical-harmonic amplitudes of the interface,
 
-- Radial bubble history through an external IMR radial solver interface.
-- Nonspherical perturbation evolution for selected spherical harmonic modes.
-- Rotational and irrotational perturbation model comparison.
-- Finite-difference and trapezoidal-integration utilities for the transformed
-  radial domain.
-- Eulerian/current-domain visualization of strain, strain rate, and stress
-  fields with `make_axisym_displacement_movie_all_fields`.
-- Custom visualization colormaps in `cmap/`, including
-  `brown_centered_diverging`, whose neutral midpoint is `#4E3629`.
-- Hypergeometric-function support through the included `mexhyp2f1` MEX binary
-  and rebuild sources.
-
-## Repository Layout
-
-```text
-IMR_nonspherical_dynamics/
-|-- s_basic_simulation.m              Main runnable MATLAB driver
-|-- setup_paths.m                     Adds repository folders to the MATLAB path
-|-- examples/                         Ready-to-run parameter permutations
-|-- cmap/                             Custom colormap functions
-|-- common/                           Shared MATLAB functions and MEX support
-|   |-- compute_rotational_perturbation_evolution.m
-|   |-- f_*.m                         Numerical kernels and model terms
-|   |-- make_axisym_displacement_movie_all_fields.m
-|   |-- hyp2f1.m
-|   |-- mexhyp2f1.mexw64              Windows MEX binary
-|   |-- mexhyp2f1.mexa64              Linux MEX binary
-|   `-- make_hyp2f1/                  Sources and build script for mexhyp2f1
-|-- CITATION.cff
-|-- THIRD_PARTY_NOTICES.md
-|-- LICENSE
-`-- README.md
+```
+r_wall(theta, t) = R(t) + sum_n eps_n(t) Y_n(theta),
 ```
 
-The `data/` directory and `data.zip` are ignored by git. The current
-`s_basic_simulation.m` script does not load files from `data/`, but the directory
-may contain local experimental or simulation outputs used by related workflows.
+together with the rotational (toroidal) field `T_n(r, t)` that each mode drives
+in the surrounding medium. Two closures are available: `rot` solves the coupled
+amplitude-and-field system, `irr` keeps only the potential-flow amplitude
+equation.
 
-## Requirements
+This is a Python port of the original MATLAB implementation, which is preserved
+unmodified in [`matlab_legacy/`](matlab_legacy/) for provenance and is no longer
+maintained. [`docs/porting-notes.md`](docs/porting-notes.md) records what
+changed and why.
 
-- MATLAB, preferably a recent release.
-- A MATLAB-supported C compiler if `mexhyp2f1` must be rebuilt.
-- The external IMR radial solver repository for `s_basic_simulation.m`, `lic`
-  examples, and `ultrasound` examples. The `free` examples and smoke test do not
-  require IMRv2.
+## Install
 
-The default IMRv2 layout is:
-
-```text
-../IMRv2/src/forward_solver/
+```bash
+pip install -e '.[all]'      # numpy, scipy, numba, jax, matplotlib, pytest
+pip install -e .             # numpy and scipy only; the numpy backend
 ```
 
-See [IMRv2 Compatibility](#imrv2-compatibility) for setup details.
+Python 3.10 or newer. There is nothing to compile: the Gauss hypergeometric
+function now comes from SciPy, so the MEX binaries and their Cephes C sources
+are gone.
 
-The included `mexhyp2f1.mexw64` and `mexhyp2f1.mexa64` files support Windows and
-Linux. On another platform, or after a MATLAB/MEX compatibility change, rebuild
-the MEX file from `common/make_hyp2f1/`.
+## Quick start
 
-## Quick Start
+```python
+import numpy as np
+from imrns import solve_perturbation, compute_scales
+from imrns.radial import constant_radius
 
-From the repository root in MATLAB:
+scales = compute_scales(Req=50e-6, rho=1048, p_inf=101325,
+                        mu=0.015, G=2e3, sigma=0.056)
 
-```matlab
-setup_paths
-run('examples/run_smoke_test.m')
+history = constant_radius(t_end=12.0, n_steps=3000)
+
+result = solve_perturbation(
+    modes=[5, 8, 11],
+    ep0=[0.075, -0.085, 0.05],
+    Ca=scales.Ca, Re=scales.Re, We=scales.We, alpha=0.1,
+    xN=256,
+    **history.as_kwargs(),
+)
+
+print(result.ep.shape)      # (3, 3000) -- one amplitude history per mode
+print(result.T.shape)       # (3, 256, 3000) -- the rotational field
 ```
 
-The smoke test runs a reduced free-bubble viscoelastic single-mode example. It
-does not call IMRv2, open figures, or write snapshot files.
+Or from the command line:
 
-## IMRv2 Compatibility
-
-This repository does not include the IMRv2 radial bubble solver. Instead,
-`common/f_call_IMRv2.m` is a wrapper that locates the IMRv2 forward-solver folder
-and calls `f_imr_fd`.
-
-The default expected folder layout is:
-
-```text
-Code/
-|-- IMR_nonspherical_dynamics/
-`-- IMRv2/
-    `-- src/
-        `-- forward_solver/
-            `-- f_imr_fd.m
+```bash
+imrns list                                            # the bundled cases
+imrns info examples/free_viscoelastic_multi.toml      # parameters and groups
+imrns run  examples/free_viscoelastic_multi.toml -o out.npz
+imrns run  examples/free_viscoelastic_multi.toml --figure strain.pdf
 ```
 
-When MATLAB is run from the `IMR_nonspherical_dynamics` root, the default
-sibling-folder lookup is:
+## The model
 
-```matlab
-../IMRv2/src/forward_solver/
+The medium is incompressible, so the deformation at radius `r` is fixed by one
+stretch,
+
+```
+lam = r / r0,      r0 = (r^3 - R^3 + Req^3)^(1/3),
 ```
 
-If IMRv2 is stored somewhere else, pass the forward-solver folder to
-`setup_paths` before running an IMRv2-backed example:
+and the strain invariant reduces to `I1 = lam^-4 + 2 lam^2`. The implemented
+coefficients were derived for a Kelvin-Voigt solid with a quadratic (Yeoh)
+strain energy,
 
-```matlab
-setup_paths('IMRv2Path', 'C:\path\to\IMRv2\src\forward_solver')
+```
+W = (G/2) [ (I1 - 3) + alpha (I1 - 3)^2 ],
 ```
 
-Alternatively, add the folder to the MATLAB path yourself or set the
-`IMRV2_FORWARD_SOLVER` environment variable before starting MATLAB.
+in parallel with a Newtonian dashpot. `alpha = 0` is neo-Hookean; `alpha > 0`
+stiffens at large stretch.
 
-To check compatibility from MATLAB:
+Numerically: the domain `r in [R, inf)` is mapped to `x in [-1, 1)` by
+`r = R(1 + L(1+x)/(1-x))`; space is discretised with second-order finite
+differences and trapezoidal quadrature for the integral kernels; time with
+backward Euler on the first step and variable-step BDF2 thereafter.
 
-```matlab
-cd path/to/IMR_nonspherical_dynamics
-setup_paths
-which f_call_IMRv2
-which f_imr_fd
-```
+Because the map is anchored to `R(t)`, the grid moves, and the nodal time
+derivative the stepper advances differs from the Eulerian one by an
+Arbitrary Lagrangian–Eulerian transport term. That term is kinematics, not a
+modelling choice; [`docs/moving-grid.md`](docs/moving-grid.md) derives it and
+shows what breaks without it.
 
-`which f_imr_fd` should return the IMRv2 solver path. If it returns
-`f_imr_fd not found`, the radial solver path is not configured.
+### Nondimensionalisation
 
-The wrapper currently assumes the IMRv2 `f_imr_fd` interface accepts name-value
-inputs such as `radial`, `bubtherm`, `tvector`, `vapor`, `medtherm`,
-`masstrans`, `method`, `stress`, `collapse`, `mu`, `g`, `alphax`, `surft`,
-`r0`, `req`, `kappa`, `t8`, `rho8`, `pa`, `omega`, and `wave_type`, and returns
-radial displacement, velocity, and acceleration in the positions used here:
+Lengths by the equilibrium radius, pressure by ambient. Everything is derived
+in one place, [`imrns/scales.py`](src/imrns/scales.py):
 
-```matlab
-[t, R, Rd, ~, ~, ~, ~, Rdd] = f_imr_fd(...);
-```
+| Group | Definition | Meaning |
+| --- | --- | --- |
+| `Ca` | `pc / G` | inertia over elasticity |
+| `Re` | `Lc sqrt(rho pc) / mu` | inertia over viscosity |
+| `We` | `pc Lc / (2 sigma)` | inertia over surface tension |
 
-If a newer IMRv2 version changes option names, output order, or units, update
-`common/f_call_IMRv2.m` before running LIC or ultrasound examples.
+Infinite values are fine and mean the corresponding stress vanishes: `G = 0`
+gives `Ca = inf`. The solver uses only reciprocals internally, so the limits are
+exact rather than approximated by a large finite number.
 
-IMRv2 is required for:
+One exception is rejected rather than silently producing nonsense: with `Ca` and
+`Re` *both* infinite there is no deviatoric stress at all, the tangential-traction
+wall condition becomes identically zero, and the rotational system is singular.
+Use `closure="irr"` there.
 
-- `s_basic_simulation.m`
-- `examples/run_lic_*.m`
-- `examples/run_ultrasound_*.m`
+## Backends
 
-IMRv2 is not required for:
+One statement of the physics, three ways to execute it. All three are required
+to agree to `1e-12` by [`tests/test_backends.py`](tests/test_backends.py).
 
-- `examples/run_free_*.m`, which use a prescribed constant-radius radial history.
-
-## Running the Basic Simulation
-
-From the repository root in MATLAB:
-
-```matlab
-setup_paths
-s_basic_simulation
-```
-
-The script:
-
-1. Defines radial, material, and perturbation parameters.
-2. Calls `f_call_IMRv2` to compute the spherical radial trajectory.
-3. Calls `compute_rotational_perturbation_evolution` for irrotational and
-   rotational perturbation evolution.
-4. Plots the radius and perturbation amplitude histories.
-5. Writes a snapshot PDF named `strain_test.pdf` in the current working
-   directory.
-
-The default driver uses mode `n = 8`, `xN = 256` radial grid points, and
-`tsteps = 5000`.
-
-### Custom colormap and white FEM grid
-
-`setup_paths` adds `cmap/` to the MATLAB path. Keep the same `StrainMeasure`
-and `StrainScalar` used by your simulation, then add the display options:
-
-```matlab
-make_axisym_displacement_movie_all_fields(T, ep, R, t, N, L, outputFile, ...
-    'StrainMeasure', 'almansi', ...   % keep your existing value
-    'StrainScalar', 'ert', ...        % keep your existing value
-    'StrainColormap', @brown_centered_diverging, ...
-    'StrainCLim', [-0.1 0.1], ...
-    'SymmetricCLim', true, ...
-    'FEM_grid', true, ...
-    'GridType', 'eulerian', ...
-    'GridCircleSpacing', 'current', ...
-    'KeepGridCirclesOutsideBubble', true, ...
-    'GridCircleWallClearanceFrac', 5e-4, ...
-    'GridColor', [1 1 1]);
-```
-
-`GridType='eulerian'` and `GridType='material'` both deform the visual grid with
-the complete potential-plus-rotational displacement solution. Their radial
-paths are remeshed continuously from the perturbed bubble wall to the displayed
-outer radius, so finite displacement cannot leave an empty near-wall annulus.
-`GridCircleSpacing='current'` uses uniform current-radius levels; use
-`GridCircleSpacing='material'` to retain material-radius level spacing. Literal
-unremeshed trajectories remain available with `GridType='pushed_forward_raw'`.
-
-## Perturbation Solver Inputs
-
-The main nonspherical solver is
-`common/compute_rotational_perturbation_evolution.m`:
-
-```matlab
-[ep_tot, epd_tot, T_tot, Td_tot, R, Rd, t] = ...
-    compute_rotational_perturbation_evolution(xN, L, N, ep0, epd0, ...
-    T0, Td0, Req, R, Rd, Rdd, Ca, alph, Re, We, t, TSM, ...
-    forcedep, mod, rot, Name, Value)
-```
-
-All positional inputs are required:
-
-| Input | Meaning |
+| Backend | Use it for |
 | --- | --- |
-| `xN` | Number of finite-difference grid points in the transformed radial domain. |
-| `L` | Outer-domain mapping parameter used by the radial coordinate transform. |
-| `N` | Spherical-harmonic mode number or row vector of mode numbers. |
-| `ep0` | Initial perturbation amplitude, one value per mode in `N`. |
-| `epd0` | Initial nondimensional time derivative of `ep`, one value per mode. |
-| `T0` | Initial rotational field, size `numel(N)`-by-`xN`. |
-| `Td0` | Initial time derivative of `T0`, size `numel(N)`-by-`xN`. |
-| `Req` | Equilibrium radius in the solver scaling; usually `1` after nondimensionalizing by `Req`. |
-| `R` | Required nondimensional radial history on the time grid `t`. |
-| `Rd` | Required nondimensional radial velocity history on the time grid `t`. |
-| `Rdd` | Required nondimensional radial acceleration history on the time grid `t`. |
-| `Ca` | Cauchy number using the perturbation solver scaling. |
-| `alph` | Material model parameter used in the elastic stress terms. |
-| `Re` | Reynolds number using the perturbation solver scaling. |
-| `We` | Weber number using the perturbation solver scaling. |
-| `t` | Nondimensional time vector. `R`, `Rd`, and `Rdd` must have the same length. |
-| `TSM` | Time-stepping method: `1` for backward Euler, `2` for BDF2 after the first step. |
-| `forcedep` | `'F'` solves the perturbation amplitude; `'T'` prescribes `ep` and `epd`. |
-| `mod` | Rotational model string, currently `"me"` or `"Pros"`. |
-| `rot` | Perturbation model string: `"rot"` for rotational or `"irr"` for irrotational. |
+| `numpy` | the default and the reference; always importable |
+| `numba` | production runs; compiles the coefficient kernels |
+| `jax` | gradients, parameter sensitivity, GPU |
 
-Optional name-value inputs:
+```python
+result = solve_perturbation(..., backend="numba")
+```
 
-| Name | Meaning |
+Numba and JAX cannot be combined — a `@njit` function cannot be called inside a
+JAX trace — which is why they are alternative backends rather than layered
+accelerations.
+
+### Performance
+
+Measured on this repository's benchmark, four modes at `xN = 256`, 200 steps.
+The headline change is structural rather than compiler-driven: **the operator is
+block diagonal by mode** and nobody was exploiting it. Every write the assembly
+performs lands inside its own mode's block, so four 514-cubed factorisations
+replace one 2056-cubed one.
+
+| | ms/step |
 | --- | --- |
-| `'Verbose'` | Logical flag for per-percent condition-number diagnostics. Default is `false`. |
-| `'ForcedEp'` | Required when `forcedep == 'T'`. Prescribed `ep` history, size `numel(N)`-by-`numel(t)`. A vector is accepted for a single mode. |
-| `'ForcedEpd'` | Required when `forcedep == 'T'`. Prescribed nondimensional `ep` time derivative with the same size as `'ForcedEp'`. |
-| `'ForcedEpPeriod'` | Optional positive scalar period, in nondimensional time, used for quasi-equilibrium early stopping during forced-`ep` rotational runs. If omitted, the solver runs to the end of `t`. |
+| monolithic sparse solve, as the MATLAB code assembled it | 85 |
+| per-mode blocks, NumPy | 31.5 |
+| per-mode blocks, Numba | 26.5 |
+| constant radius, LU factorisation reused | 1.3 |
 
-The solver no longer manufactures a fallback radial history. For a free
-constant-radius run, pass explicit histories:
+Be clear about where the time goes. At `xN = 256` the per-block cost is about
+6.5 ms to assemble and 2.5 ms to factorise and solve — **assembly dominates**.
+Numba makes the isolated coefficient kernels about fifty times faster, but they
+are a small part of assembly, so end to end it contributes about 20%. Larger
+gains came from using slices rather than fancy indexing for the sub-block
+writes (2.1x) and from hoisting the mode-independent advection operator out of
+the mode loop.
 
-```matlab
-t = linspace(0, tf_nd, tsteps);
-R = ones(size(t));
-Rd = zeros(size(t));
-Rdd = zeros(size(t));
+Two optimisations were measured and rejected: banded-Schur elimination of the
+`T` block was 9x *slower* (the dense coupling makes the complement a wash), and
+reusing the previous step's LU as a GMRES preconditioner gained only ~1.5x at
+small drift.
+
+## Automatic differentiation
+
+The timestep is `q^{n+1} = solve(beta0 I - dt A(theta), rhs(q^n, theta))`, which
+is differentiable end to end. One reverse-mode pass gives every parameter
+sensitivity at once, exactly — no finite-difference step to choose.
+
+```python
+import jax, jax.numpy as jnp
+from imrns.sensitivity import amplitude_trajectory, default_parameters
+
+def loss(params):
+    ep = amplitude_trajectory(params, t=t, R=R, Rd=Rd, Rdd=Rdd, mode=5, xN=64)
+    return jnp.sum((ep - measured) ** 2)
+
+grads = jax.grad(loss)(default_parameters(Ca=50.0, Re=35.0, We=45.0, alpha=0.1))
 ```
 
-To prescribe the perturbation amplitude, set `forcedep = 'T'` in
-`s_basic_simulation.m`, fill the `forcedEp` and `forcedEpd` arrays after the time
-vector has been nondimensionalized, and pass them through `solverOptions` as the
-driver does. The entries are indexed as `(mode, timeIndex)`, and `ForcedEpd`
-must be the derivative with respect to the same nondimensional time vector `t`
-used by the solver.
+Two details make this work, both verified against finite differences in
+[`tests/test_gradients.py`](tests/test_gradients.py):
 
-## Example Permutations
+- **`2F1` is not in JAX.** The elastic coefficients evaluate it at
+  `z = 1 - sr^-3`, and `sr = R/Req` is differentiable state, so the derivative
+  is needed and not just the value. It is supplied through a `custom_jvp` using
+  `d/dz 2F1(a,b;c;z) = (ab/c) 2F1(a+1,b+1;c+1;z)`, with values from a
+  `pure_callback` to SciPy.
+- **Reverse mode would store every operator.** That is tens of gigabytes for a
+  production run, so the scan body is wrapped in `jax.checkpoint` and each
+  operator is rebuilt during the backward pass. The gradients are identical
+  with and without, which is also a test.
 
-The `examples/` folder contains scripts for free, laser-induced cavitation
-(`lic`), and ultrasound-forced radial histories across viscous, elastic, and
-viscoelastic material presets. Each case is available as both a single-mode and
-multimode perturbation example.
+The differentiable path uses backward Euler throughout; use
+`solve_perturbation` for production trajectories and this module for gradients.
 
-For example:
+## Fields and figures
 
-```matlab
-setup_paths
-run('examples/run_lic_viscoelastic_single_mode.m')
+The solver returns modal amplitudes and the rotational field;
+`imrns.postprocess` turns those into displacement, strain, strain-rate and
+stress fields in the medium.
+
+```python
+from imrns.postprocess import FieldSpec, snapshot_grid, field_slice
+
+spec = FieldSpec(measure="almansi", scalar="ert")
+snapshot_grid(result, L=5.0, output="strain.pdf", spec=spec, n_frames=12)
+
+X, Z, C = field_slice(result, frame=400, L=5.0, spec=spec)   # build your own figure
 ```
 
-The examples share `examples/run_nonspherical_example.m` and
-`examples/example_config.m`, so changes to the common workflow can be made in
-one place.
+| `measure` | field |
+| --- | --- |
+| `almansi` | Eulerian Almansi strain `e = (I - B⁻¹)/2` (default) |
+| `small` | symmetric displacement gradient |
+| `strain_rate` | rate of deformation `D` |
+| `stress` | `σ = G(1 + α(I_B - 3))B + 2μD - PI` |
 
-## Rebuilding `mexhyp2f1`
+`scalar` picks a component (`err`, `ert`, …) or an invariant (`frobenius`,
+`trace`, `max_principal`, `signed_maxabs_principal`).
 
-Only rebuild this if MATLAB cannot load the included MEX binary.
+Physics and rendering are separate modules: `fields.py` returns arrays and
+imports no plotting library, `render.py` draws them. In the MATLAB the two were
+interleaved across 2769 lines, which left the reconstruction untestable on its
+own — it is now checked against the exact incompressible base solution to
+`1e-13` and against the known nodal structure of each harmonic.
 
-```matlab
-cd common/make_hyp2f1
-make_hyp2f1
-copyfile(['mexhyp2f1.' mexext], '..')
-cd ../..
+Two things worth knowing before trusting a figure:
+
+- **Strain rate and stress need a well-resolved run.** They are built from the
+  solver's `T` field, so the divergence of the reconstructed velocity — zero
+  for a truly incompressible medium — is a resolution diagnostic. It converges
+  with `xN`, not with the plotting grid, and is worst within about half a
+  radius of the wall. Use `xN >= 256` for these.
+- **Diverging fields are drawn blue–white–red on limits symmetric about zero.**
+  The two arms share one luminance profile, so equal magnitudes of either sign
+  read as equally intense and the sign is carried by hue; luminance falls away
+  from the midpoint, so zero recedes and structure stands out. The poles
+  separate by ΔE 23.8 under protanopia. Unsigned scalars get a sequential map
+  instead. The MATLAB tree's dark-brown-midpoint map is still available as
+  `cmap="brown_centered_diverging"` for reproducing earlier figures.
+- **Colour limits are set by area, not by cell count.** The field spans two
+  decades — the outer two thirds of the domain carries `|e| < 0.003` while a
+  thin shell at the wall reaches `0.3` — so the scale clips the extremes to
+  keep the bulk readable, and the colourbar is extended to say so. A plain
+  quantile over cells would make the scale depend on the plotting resolution
+  (measured: 250% drift); weighting by cell area holds it to 8%.
+
+## Constitutive models
+
+Material behaviour enters through one interface,
+[`imrns/constitutive/`](src/imrns/constitutive/). A model supplies the elastic
+strain energy through `dW(I1)` and `d2W(I1)`, plus a viscosity.
+
+```python
+from imrns.constitutive import NeoHookean, QuadraticLaw, KelvinVoigt
+
+KelvinVoigt(QuadraticLaw(G=2e3, alpha=0.1), mu=0.015)   # the default model
+NeoHookean(G=2e3)                                        # alpha = 0
 ```
 
-This requires a working MEX compiler configuration. In MATLAB, use `mex -setup`
-if no compiler has been configured.
+**What works today.** The hand-derived coefficients the solver uses assume a
+quadratic `W(I1)`. Everything in that family is exact and available now: the
+quadratic law, neo-Hookean, the Newtonian limit (`G = 0`) and the inviscid limit
+(`mu = 0`). A model outside the family is rejected with an explanation rather
+than silently evaluated with the wrong coefficients.
 
-The `hyp2f1` MEX support in `common/` is from Siyi Deng's MATLAB Central File
-Exchange submission, "Gauss hypergeometric function." That package computes the
-real-valued Gauss hypergeometric function using SciPy/Cephes C-source routines
-and provides the `make_hyp2f1.m` build script used here. See
-[Citations](#citations) and `THIRD_PARTY_NOTICES.md`.
+**What does not, yet.** Supporting general `W(I1)` — Gent, Fung, Arruda-Boyce,
+or anything user-supplied — means re-deriving the coefficients generically and
+checking them against the closed forms. `I2`-dependent models such as
+Mooney-Rivlin need their own derivation, and rate-type viscoelasticity
+(Oldroyd-B, Giesekus) adds state variables to the system and needs an extended
+interface. [`docs/constitutive.md`](docs/constitutive.md) sets out what is
+required and why the staging is what it is.
 
-## Main Files
-
-- `s_basic_simulation.m`: top-level example/driver.
-- `common/f_call_IMRv2.m`: wrapper around the external IMR radial solver.
-- `common/compute_rotational_perturbation_evolution.m`: main perturbation
-  evolution solver.
-- `common/f_*.m`: numerical stencils, transformed-domain mappings, matrix
-  assembly, source terms, and constitutive/model coefficients.
-- `common/make_axisym_displacement_movie_all_fields.m`: snapshot/movie
-  visualization for strain, strain rate, and stress fields.
-- `common/hyp2f1.m`: MATLAB wrapper for the compiled hypergeometric MEX routine.
-- `examples/`: simulation permutations built from the main driver workflow.
-
-## Citations
-
-GitHub should display citation metadata from `CITATION.cff`. For now, cite the
-nonspherical code using:
+## Repository layout
 
 ```text
-IMR Nonspherical Dynamics. See:
-https://www.sciencedirect.com/science/article/pii/S2352431626000404
+src/imrns/
+  config.py          case definitions, TOML loading
+  scales.py          nondimensionalisation, in one place
+  grid.py            the x <-> r map and its metric coefficients
+  operators.py       finite differences, upwinding, quadrature
+  layout.py          state-vector layout; replaces f_get_indicies
+  special.py         2F1, from SciPy
+  solver.py          the time loop
+  stepper.py         BDF coefficients, block solve, factorisation cache
+  constitutive/      material models and the interface they implement
+  assemble/
+    kernels.py       the physics: one copy, shared by all three backends
+    numpy_backend.py numba_backend.py  jax_backend.py
+  radial/            radial histories; IMRv2 bridge
+  sensitivity.py     differentiable trajectories
+  colormaps.py       the colormaps the MATLAB tree referenced but never shipped
+  cli.py
+  postprocess/
+    fields.py        displacement, strain, strain rate, stress -- arrays only
+    render.py        matplotlib: slices, snapshot grids, animations
+examples/            18 cases as TOML, replacing 18 three-line scripts
+tests/
+matlab_legacy/       the original MATLAB, unmodified and unmaintained
 ```
 
-A project-specific nonspherical-code paper should replace or supplement this
-entry once it is available.
+## Radial histories
 
-The included `hyp2f1`/`mexhyp2f1` support is based on:
+The perturbation solver never computes the radial motion; it takes
+`(t, R, Rd, Rdd)` as given. Built in: `constant_radius` (what the `free` cases
+use) and `sinusoidal_radius`. For a history from the IMRv2 radial solver:
 
-```text
-Siyi Deng. Gauss hypergeometric function. MATLAB Central File Exchange,
-Version 1.0.0.0, published 11 Oct 2013.
-https://www.mathworks.com/matlabcentral/fileexchange/43865-gauss-hypergeometric-function
+```python
+from imrns.radial.imrv2 import adapt_history
+history = adapt_history(t, R, Rd, Rdd, Rmax=150e-6, Req=50e-6)
 ```
 
-The MATLAB Central page notes that the package computes real-valued
-`2F1(a,b;c;z)` using SciPy C-source files and provides `make_hyp2f1.m` to
-compile the MEX files.
+`adapt_history` takes plain arrays, so it is not coupled to any particular
+IMRv2 version. It is also the only place the scaling conversion happens — IMRv2
+normalises lengths by the maximum radius, this solver by the equilibrium radius,
+and the MATLAB drivers did that conversion inline, twice. The `lic_*` cases ask
+for such a history and say so if run without one.
 
-Additional third-party source notes are listed in `THIRD_PARTY_NOTICES.md`.
+## Tests
 
-## Notes
+```bash
+pip install -e '.[all]'
+pytest                  # everything, about a minute
+pytest -m "not slow"    # skips the numba/jax checks, about 13 seconds
+```
 
-- Run `setup_paths` from the repository root before using the examples or driver
-  scripts.
-- Generated figures, PDFs, movies, and large `.mat` datasets should usually stay
-  out of version control.
-- `LICENSE` currently specifies the GNU General Public License v3.0.
+CI runs the lint and the fast subset on every push. The `slow` marker covers
+the tests that need an optional backend; almost all of their time is JIT
+compilation, not computation. Run the full suite locally before a release.
+
+The suite is built around the fact that there is no written derivation of the
+model — the hand-expanded MATLAB expressions are the only statement of it. So
+the port is checked from several independent directions:
+
+- **Against the MATLAB source text.**
+  [`tests/matlab_oracle.py`](tests/matlab_oracle.py) reads `matlab_legacy/*.m`,
+  extracts the right-hand side of a named assignment, rewrites MATLAB array
+  syntax as Python and evaluates it. Every coefficient kernel is compared
+  against its own source at `rtol=1e-13`, so transcription is out of the trust
+  chain entirely.
+- **Against known physics.** A free inviscid bubble must reproduce the Lamb
+  capillary frequency `omega^2 = (n-1)(n+1)(n+2) sigma / (rho R^3)`; `rot` must
+  converge to `irr` at first order as the deviatoric stress vanishes; the
+  solution must be exactly linear in the initial amplitude; modes solved
+  together must match modes solved alone (the property the block-diagonal solve
+  relies on).
+- **Across backends and against finite differences**, as described above.
+- **Against pinned trajectories**, so refactors cannot drift silently.
+
+Neither MATLAB nor Octave is used or required. What this cannot do is prove
+agreement with *your* saved MATLAB runs; if you have `.mat` outputs from a
+known-good run, they can be added as fixtures.
+
+## Defects found in the MATLAB code
+
+Found while porting, listed so published results can be checked.
+[`docs/porting-notes.md`](docs/porting-notes.md) has the details.
+
+Two change results:
+
+1. `s_basic_simulation.m:13` — `Rmax = 150-6`, almost certainly `150e-6`. As
+   written the driver's bubble is 144 metres, and since `Lc = Req = Rmax/1.2`
+   every dimensionless group in it is wrong.
+2. `s_basic_simulation.m:100` — `solverOptions` is unconditionally overwritten
+   with `{'Verbose', true}` immediately after the `forcedep == 'T'` branch fills
+   it, so prescribed-amplitude runs from that driver could not work.
+
+Others: the derivative stencils and the advection operator used different grid
+spacings on the same grid; the quasi-equilibrium branch truncated the amplitude
+histories but returned `t`, `R` and `Rd` at full length; `cmap/` was referenced
+by `setup_paths`, the README and every example but never committed, so any
+example with snapshot output failed.
+
+One behaviour was checked with the author and **deliberately preserved**: in
+`f_ep_source_terms`, the `V` rows are captured before `f_modify_A_bulk_map` adds
+the moving-grid advection, so the second-time-derivative substitution uses the
+uncorrected operator. The ordering is load-bearing and is commented as such in
+both the NumPy and JAX backends.
+
+## Not ported
+
+The MATLAB visualiser's deformed-mesh overlays (`FEM_grid`, `GridType`,
+`pushed_forward_raw` and the remeshing options around them) are not carried
+over. They are a visual overlay on top of the field, not part of it, and the
+several hundred lines they occupied are better rewritten than transcribed. The
+field rendering itself is ported.
+
+## Citation
+
+See [`CITATION.cff`](CITATION.cff).
+
+## License
+
+GNU General Public License v3.0 only. See [`LICENSE`](LICENSE).

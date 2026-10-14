@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "imrns"
+version = "0.1.0"
+description = "Nonspherical perturbation dynamics of inertial microcavitation bubbles in soft materials"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-only"
+keywords = [
+    "bubble dynamics",
+    "inertial microcavitation rheometry",
+    "nonspherical perturbations",
+    "viscoelasticity",
+]
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+numba = ["numba>=0.59"]
+jax = ["jax>=0.4.30"]
+plot = ["matplotlib>=3.7"]
+test = ["pytest>=7.4", "sympy>=1.12"]
+all = ["numba>=0.59", "jax>=0.4.30", "matplotlib>=3.7", "pytest>=7.4", "sympy>=1.12"]
+
+[project.scripts]
+imrns = "imrns.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["error::RuntimeWarning"]
+markers = [
+    "slow: needs an optional backend (numba/jax) or takes more than a second; CI runs `-m 'not slow'`",
+]

@@ -1,0 +1,29 @@
+name = "lic_elastic_multi"
+description = "laser-induced cavitation history (needs IMRv2); elastic solid: finite stiffness, no viscosity; three modes"
+
+modes = [5, 8, 11]
+ep0 = [0.075, -0.085, 0.05]
+epd0 = [0.0, 0.0, 0.0]
+
+[material]
+rho = 1048.0
+p_inf = 101325.0
+sigma = 0.056
+mu = 0.0
+G = 2000.0
+alpha = 0.1
+
+[drive]
+kind = "imrv2"
+Rmax = 0.00015
+Req = 5e-05
+t_end = 4.0
+n_steps = 5000
+
+[numerics]
+xN = 256
+L = 5.0
+model = "me"
+closure = "rot"
+method = 2
+backend = "numpy"

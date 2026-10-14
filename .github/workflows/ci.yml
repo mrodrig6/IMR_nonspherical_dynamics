@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "claude/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: lint and fast tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        # test extras cover pytest and sympy; plot covers matplotlib, which the
+        # rendering tests need.  numba and jax are deliberately left out: the
+        # tests that need them are marked slow and deselected below, and their
+        # wheels dominate the install time.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[test,plot]' ruff
+
+      - name: Lint
+        run: ruff check src tests --select F,E7,E9,UP,RUF022
+
+      - name: Fast tests
+        # Everything except the numba/jax checks, which take about 45 s of the
+        # suite's 60 s, almost all of it JIT compilation.  Run the whole suite
+        # locally with `pytest` before a release.
+        run: pytest -m "not slow" -q
