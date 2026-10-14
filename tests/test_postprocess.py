@@ -296,6 +296,49 @@ def test_symmetric_limits_are_centred_on_zero():
     assert symmetric_limits(np.array([np.nan, np.nan]))[1] == 1.0
 
 
+def test_colour_limits_do_not_depend_on_how_the_grid_was_sampled(result):
+    """Area weighting is what makes the scale a property of the field.
+
+    A plain quantile over cells moves by a factor of three when the radial grid
+    is clustered towards the wall -- which :func:`field_slice` does by default,
+    because that is where the field varies.  Weighting by cell area removes the
+    dependence, so two people plotting the same frame at different resolutions
+    get the same colour scale.
+    """
+    from imrns.postprocess.render import FieldSpec, field_slice, symmetric_limits
+
+    spec = FieldSpec()
+    area_based, cell_based = [], []
+    for power, n_radial in ((1.0, 60), (2.0, 60), (2.0, 120), (3.0, 60)):
+        X, Z, C = field_slice(result, 30, L, spec, n_radial=n_radial, n_theta=90,
+                              radial_power=power)
+        area_based.append(symmetric_limits(C, X, Z)[1])
+        cell_based.append(symmetric_limits(C)[1])
+
+    spread = lambda v: max(v) / min(v)  # noqa: E731
+    assert spread(area_based) < 1.3, f"area-weighted limits drifted: {area_based}"
+    assert spread(cell_based) > spread(area_based), "cell quantile should be the unstable one"
+
+
+def test_clipping_is_declared_on_the_colourbar(result):
+    """If the peak is off-scale the reader must be able to see that."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    from imrns.postprocess.render import FieldSpec, _extend_keyword, plot_frame
+
+    fig, ax = plt.subplots()
+    mesh = plot_frame(ax, result, 30, L, FieldSpec(), n_radial=60, n_theta=90)
+    assert _extend_keyword(mesh) in ("both", "min", "max")
+
+    ax.clear()
+    wide = plot_frame(ax, result, 30, L, FieldSpec(), clim=(-1e3, 1e3),
+                      n_radial=60, n_theta=90)
+    assert _extend_keyword(wide) == "neither"
+    plt.close(fig)
+
+
 def test_pick_frames_spans_the_run(result):
     from imrns.postprocess.render import pick_frames
 
@@ -312,17 +355,37 @@ def test_field_spec_labels_components():
     assert "frobenius" in FieldSpec(scalar="frobenius").label()
 
 
-def test_colormap_is_luminance_symmetric_about_the_midpoint():
+@pytest.mark.parametrize("name", ["diverging_blue_red", "brown_centered_diverging"])
+def test_diverging_colormaps_are_luminance_symmetric(name):
     """Equal magnitudes of either sign must read as equally intense.
 
     A diverging map whose arms differ in lightness makes one sign look stronger
     than the other at the same magnitude, which is a misreading the viewer
     cannot correct for.
     """
-    from imrns.colormaps import brown_centered_diverging, relative_luminance
+    from imrns import colormaps
 
-    Y = relative_luminance(brown_centered_diverging(257))
+    Y = colormaps.relative_luminance(getattr(colormaps, name)(257))
     np.testing.assert_allclose(Y, Y[::-1], atol=1e-12)
+
+
+def test_default_colormap_puts_the_lightest_point_at_zero():
+    """Zero should recede and large magnitudes stand out.
+
+    Most of the domain is near zero, so a dark midpoint (as the legacy
+    brown map has) turns a quiescent field into a solid block.
+    """
+    from imrns.colormaps import diverging_blue_red, relative_luminance
+
+    Y = relative_luminance(diverging_blue_red(257))
     mid = len(Y) // 2
-    assert Y[mid] == min(Y)
-    assert np.all(np.diff(Y[mid:]) >= -1e-12), "luminance must rise away from zero"
+    assert Y[mid] == max(Y)
+    assert np.all(np.diff(Y[mid:]) <= 1e-12), "luminance must fall away from zero"
+
+
+def test_legacy_colormap_is_still_available():
+    """Earlier figures can still be reproduced."""
+    from imrns.colormaps import available, get
+
+    assert "brown_centered_diverging" in available()
+    assert get("brown_centered_diverging", 16).shape == (16, 3)

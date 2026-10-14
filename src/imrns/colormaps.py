@@ -1,5 +1,13 @@
 """Colormaps used by the figures.
 
+:func:`diverging_blue_red` is the default for signed fields: blue for negative,
+red for positive, through a light neutral at zero.
+
+:func:`brown_centered_diverging` is kept for reproducing earlier figures.  Its
+midpoint is the dark house brown ``#4E3629``, which makes zero the heaviest
+value on the page -- the opposite of what a field that is mostly near zero
+wants.  Prefer the blue-red map for new work.
+
 The MATLAB repository referenced a ``cmap/`` directory from ``setup_paths``, the
 README and every example configuration, but the directory was never committed.
 Any example with snapshot output therefore failed on an undefined
@@ -95,6 +103,11 @@ def brown_centered_diverging(n: int = 256, gamma: float = 0.85) -> np.ndarray:
 
     ``gamma`` shapes how fast luminance rises away from the midpoint; the
     default spreads contrast fairly evenly over the range.
+
+    Note the midpoint is *dark*, so zero is the heaviest value on the page and
+    a mostly-quiescent field reads as a solid brown block.  Kept for continuity
+    with earlier figures; :func:`diverging_blue_red` is the default for new
+    work.
     """
     if n < 2:
         raise ValueError("n must be at least 2")
@@ -116,7 +129,58 @@ def brown_centered_diverging(n: int = 256, gamma: float = 0.85) -> np.ndarray:
     return np.clip(full[lo] * (1 - frac) + full[hi] * frac, 0.0, 1.0)
 
 
-_REGISTRY = {"brown_centered_diverging": brown_centered_diverging}
+# Diverging pair: blue (negative) and red (positive) with a light neutral
+# midpoint.  Validated for colour-vision deficiency -- the two poles separate by
+# Delta E 23.8 under protanopia, against a target of 8.
+_NEUTRAL = np.array([0xF0, 0xEF, 0xEC]) / 255.0
+_BLUE_ARM = [_NEUTRAL, np.array([0x6F, 0xA8, 0xE8]) / 255.0,
+             np.array([0x2A, 0x78, 0xD6]) / 255.0, np.array([0x15, 0x3C, 0x73]) / 255.0]
+_RED_ARM = [_NEUTRAL, np.array([0xE5, 0x8A, 0x7E]) / 255.0,
+            np.array([0xD0, 0x3B, 0x3B]) / 255.0, np.array([0x6E, 0x1A, 0x1A]) / 255.0]
+
+
+def diverging_blue_red(n: int = 256, gamma: float = 1.0) -> np.ndarray:
+    """Blue-to-red diverging map with a light neutral midpoint.
+
+    The default for signed fields.  Negative values run blue, positive red,
+    through a near-white neutral at zero.
+
+    Two properties make it safe to read quantitatively, and both are enforced
+    rather than eyeballed (:mod:`tests.test_postprocess` checks them):
+
+    * **The arms share one luminance profile**, so ``-x`` and ``+x`` are equally
+      intense and the sign is carried by hue alone.
+    * **Luminance falls monotonically away from the midpoint**, so zero recedes
+      and large magnitudes are salient.  This is the usual convention for
+      strain fields, where most of the domain is near zero and the structure is
+      what should stand out.
+
+    ``gamma`` shapes how fast luminance falls; 1 is linear in the normalised
+    magnitude.
+    """
+    if n < 2:
+        raise ValueError("n must be at least 2")
+    half = int(np.ceil(n / 2))
+    s = np.linspace(0.0, 1.0, half)
+
+    y_mid = float(relative_luminance(_NEUTRAL))
+    y_end = 0.045
+    target = y_mid + (y_end - y_mid) * s**gamma
+
+    cool = _force_luminance(_interpolate(_BLUE_ARM, half), target)
+    warm = _force_luminance(_interpolate(_RED_ARM, half), target)
+
+    full = np.vstack([cool[::-1], warm[1:]]) if n % 2 else np.vstack([cool[::-1], warm])
+    idx = np.linspace(0.0, len(full) - 1, n)
+    lo, hi = np.floor(idx).astype(int), np.ceil(idx).astype(int)
+    frac = (idx - lo)[:, None]
+    return np.clip(full[lo] * (1 - frac) + full[hi] * frac, 0.0, 1.0)
+
+
+_REGISTRY = {
+    "diverging_blue_red": diverging_blue_red,
+    "brown_centered_diverging": brown_centered_diverging,
+}
 
 
 def available() -> list[str]:

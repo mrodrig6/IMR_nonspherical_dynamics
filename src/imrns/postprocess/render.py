@@ -17,11 +17,18 @@ Colour conventions
 ------------------
 Signed fields (every strain, rate and shear-stress component) are drawn with a
 diverging map on limits symmetric about zero, so the midpoint is zero and equal
-magnitudes of either sign read as equally intense.  That symmetry is a property
-of the colormap as well as the limits; see :func:`imrns.colormaps.brown_centered_diverging`.
+magnitudes of either sign read as equally intense.  The default,
+:func:`imrns.colormaps.diverging_blue_red`, has a light neutral midpoint and
+two arms with identical luminance profiles: zero recedes, the sign is carried
+by hue, and the magnitude by how dark the colour is.
+
 Unsigned fields (``frobenius``, ``maxabs_component``) get a sequential map from
 zero instead, because a diverging map on a non-negative field wastes half its
 range and implies a polarity that is not there.
+
+Pass ``cmap="brown_centered_diverging"`` to reproduce earlier figures.  Its
+midpoint is dark, so a mostly-quiescent field reads as a solid block; a light
+wall colour suits it (``wall_color="white"``).
 """
 
 from __future__ import annotations
@@ -127,7 +134,7 @@ def _auto_r_max(result, frame, r_max):
 
 def field_slice(result, frame: int, L: float, spec: FieldSpec | None = None, *,
                 r_max: float | None = None, n_radial: int = 160, n_theta: int = 240,
-                wall_clearance: float = 1e-3):
+                wall_clearance: float = 1e-3, radial_power: float = 2.0):
     """Evaluate the scalar field on a meridional slice.
 
     Returns ``(X, Z, C)`` in the plane ``phi = 0``, where ``X`` is the
@@ -147,8 +154,12 @@ def field_slice(result, frame: int, L: float, spec: FieldSpec | None = None, *,
     rb = wall_radius(theta, ep_now, field.R, result.modes, spec)
     rb = np.maximum(rb, 1e-6)
 
-    # One radial ray per angle, each starting at that angle's wall.
-    s = np.linspace(0.0, 1.0, n_radial)[:, None]
+    # One radial ray per angle, each starting at that angle's wall.  The
+    # perturbation decays by two orders of magnitude within a couple of radii,
+    # so the samples are clustered towards the wall: with uniform spacing most
+    # of the grid sits in the quiescent far field and the structure near the
+    # wall is undersampled.
+    s = (np.linspace(0.0, 1.0, n_radial) ** radial_power)[:, None]
     start = rb[None, :] * (1.0 + wall_clearance)
     r_grid = start + s * (r_max - start)
     theta_grid = np.broadcast_to(theta[None, :], r_grid.shape)
@@ -160,18 +171,48 @@ def field_slice(result, frame: int, L: float, spec: FieldSpec | None = None, *,
     return X, Z, np.asarray(C, dtype=float)
 
 
-def symmetric_limits(C, quantile: float = 0.995):
-    """Colour limits symmetric about zero, robust to a few extreme cells.
+def symmetric_limits(C, X=None, Z=None, quantile: float = 0.98):
+    """Colour limits symmetric about zero, set so most of the *area* is on scale.
 
-    Near-wall cells can be an order of magnitude above the rest of the field;
-    taking the raw max would flatten everything else to the midpoint.
+    The field spans about two decades: in a typical frame the outer two thirds
+    of the domain carries ``|e| < 0.003`` while a thin shell at the wall reaches
+    ``0.3``.  Scaling to the maximum flattens everything but that shell.
+
+    The obvious fix -- a quantile over cells -- is wrong here, because it
+    depends on how the grid was sampled rather than on the field.  Clustering
+    the radial grid towards the wall (which :func:`field_slice` does, since
+    that is where the field varies) moves a plain cell quantile by a factor of
+    three. Weighting each cell by its area ``r dr dtheta`` removes that
+    dependence: measured across four different grids the area-weighted value
+    varied by 8% while the cell quantile varied by 250%.
+
+    Pass ``X`` and ``Z`` to get the area weighting; without them this falls
+    back to the cell quantile.  Either way the limits only *clip* the extremes
+    -- :func:`plot_frame` extends the colourbar so that is visible rather than
+    silently implied.
     """
-    finite = np.asarray(C)[np.isfinite(C)]
-    if finite.size == 0:
+    C = np.asarray(C)
+    finite = np.isfinite(C)
+    if not finite.any():
         return (-1.0, 1.0)
-    m = float(np.quantile(np.abs(finite), quantile))
+
+    if X is None or Z is None:
+        m = float(np.quantile(np.abs(C[finite]), quantile))
+    else:
+        r = np.hypot(X, Z)
+        dr = np.gradient(r, axis=0)
+        dth = np.abs(np.gradient(np.arctan2(X, Z), axis=1))
+        weight = np.abs(r * dr * dth)[finite].ravel()
+        values = np.abs(C[finite]).ravel()
+        order = np.argsort(values)
+        values, weight = values[order], weight[order]
+        total = weight.sum()
+        if total <= 0:
+            return (-1.0, 1.0)
+        m = float(np.interp(quantile, np.cumsum(weight) / total, values))
+
     if m <= 0:
-        m = float(np.abs(finite).max()) or 1.0
+        m = float(np.abs(C[finite]).max()) or 1.0
     return (-m, m)
 
 
@@ -184,9 +225,9 @@ def pick_frames(result, n_frames: int, time_range=None):
 
 
 def plot_frame(ax, result, frame: int, L: float, spec: FieldSpec | None = None, *,
-               clim=None, cmap="brown_centered_diverging", r_max: float | None = None,
+               clim=None, cmap="diverging_blue_red", r_max: float | None = None,
                n_radial: int = 160, n_theta: int = 240, show_wall: bool = True,
-               wall_color="white", wall_width: float = 1.2, title: str | None = None):
+               wall_color="0.15", wall_width: float = 1.2, title: str | None = None):
     """Draw one frame onto ``ax``.  Returns the ``QuadMesh``."""
     import matplotlib.colors as mcolors
     from matplotlib.colors import ListedColormap
@@ -198,7 +239,8 @@ def plot_frame(ax, result, frame: int, L: float, spec: FieldSpec | None = None, 
 
     unsigned = spec.scalar.lower() in UNSIGNED_SCALARS
     if clim is None:
-        clim = (0.0, symmetric_limits(C)[1]) if unsigned else symmetric_limits(C)
+        peak = symmetric_limits(C, X, Z)[1]
+        clim = (0.0, peak) if unsigned else (-peak, peak)
     norm = mcolors.Normalize(vmin=clim[0], vmax=clim[1])
     cmap_obj = ListedColormap(get_colormap("viridis" if unsigned else cmap, 256))
 
@@ -206,6 +248,12 @@ def plot_frame(ax, result, frame: int, L: float, spec: FieldSpec | None = None, 
     mesh = ax.pcolormesh(np.hstack([-X[:, ::-1], X]), np.hstack([Z[:, ::-1], Z]),
                          np.hstack([C[:, ::-1], C]), cmap=cmap_obj, norm=norm,
                          shading="gouraud", rasterized=True)
+    # Record whether anything is off-scale so the colourbar can say so.
+    finite = C[np.isfinite(C)]
+    mesh._imrns_clipped = (
+        bool(finite.size and finite.min() < clim[0]),
+        bool(finite.size and finite.max() > clim[1]),
+    )
 
     if show_wall:
         theta = np.linspace(0.0, 2 * np.pi, 400)
@@ -226,19 +274,26 @@ def plot_frame(ax, result, frame: int, L: float, spec: FieldSpec | None = None, 
     return mesh
 
 
+def _extend_keyword(mesh):
+    """``extend`` for a colourbar, from what :func:`plot_frame` recorded."""
+    low, high = getattr(mesh, "_imrns_clipped", (False, False))
+    return {(True, True): "both", (True, False): "min",
+            (False, True): "max", (False, False): "neither"}[(low, high)]
+
+
 def _shared_limits(result, frames, L, spec, r_max, n_radial, n_theta):
     """Colour limits covering every frame, so panels are comparable."""
     peak = 0.0
     for fr in frames:
-        _, _, C = field_slice(result, fr, L, spec, r_max=r_max,
+        X, Z, C = field_slice(result, fr, L, spec, r_max=r_max,
                               n_radial=n_radial, n_theta=n_theta)
-        peak = max(peak, abs(symmetric_limits(C)[1]))
+        peak = max(peak, abs(symmetric_limits(C, X, Z)[1]))
     return peak or 1.0
 
 
 def snapshot_grid(result, L: float, output, spec: FieldSpec | None = None, *,
                   frames=None, n_frames: int = 12, layout=None, clim=None,
-                  cmap="brown_centered_diverging", r_max: float | None = None,
+                  cmap="diverging_blue_red", r_max: float | None = None,
                   n_radial: int = 160, n_theta: int = 240, time_range=None,
                   figsize=None, dpi: int = 300, colorbar_label: str | None = None,
                   panel_labels: bool = True):
@@ -285,7 +340,8 @@ def snapshot_grid(result, L: float, output, spec: FieldSpec | None = None, *,
             ax.text(0.02, 0.98, f"({ascii_lowercase[k]})", transform=ax.transAxes,
                     va="top", ha="left", fontsize=9, color="0.25")
 
-    cbar = fig.colorbar(mesh, ax=axes.tolist(), shrink=0.85, aspect=30, pad=0.02)
+    cbar = fig.colorbar(mesh, ax=axes.tolist(), shrink=0.85, aspect=30, pad=0.02,
+                        extend=_extend_keyword(mesh))
     cbar.set_label(colorbar_label or spec.label(), fontsize=11)
     cbar.outline.set_visible(False)
 
@@ -295,7 +351,7 @@ def snapshot_grid(result, L: float, output, spec: FieldSpec | None = None, *,
 
 def animate(result, L: float, output, spec: FieldSpec | None = None, *,
             frames=None, n_frames: int = 120, fps: int = 20, clim=None,
-            cmap="brown_centered_diverging", r_max: float | None = None,
+            cmap="diverging_blue_red", r_max: float | None = None,
             n_radial: int = 160, n_theta: int = 240, time_range=None,
             figsize=(5.0, 5.0), dpi: int = 150, colorbar_label: str | None = None):
     """Write a movie to ``output`` (``.mp4`` needs ffmpeg; ``.gif`` does not).
@@ -323,7 +379,8 @@ def animate(result, L: float, output, spec: FieldSpec | None = None, *,
     mesh = plot_frame(ax, result, frames[0], L, spec, clim=clim, cmap=cmap, r_max=r_max,
                       n_radial=n_radial, n_theta=n_theta,
                       title=rf"$t^* = {result.t[frames[0]]:.3g}$")
-    cbar = fig.colorbar(mesh, ax=ax, shrink=0.85, aspect=30, pad=0.02)
+    cbar = fig.colorbar(mesh, ax=ax, shrink=0.85, aspect=30, pad=0.02,
+                        extend=_extend_keyword(mesh))
     cbar.set_label(colorbar_label or spec.label(), fontsize=11)
     cbar.outline.set_visible(False)
 

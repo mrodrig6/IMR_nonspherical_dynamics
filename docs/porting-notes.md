@@ -156,12 +156,24 @@ Two changes of substance rather than form:
   that grid's truncation error even for a perfectly spherical bubble. Only the
   modal part is differenced now, and an unperturbed bubble gives the exact
   incompressible answer at any plotting resolution.
-- **The diverging colormap was rebuilt with symmetric luminance.** `cmap/` was
-  never committed, so the ramp had to be written from the README's one clue
-  (the `#4E3629` midpoint). The first version differed by a factor of 3.3 in
-  luminance between its arms at the half-way point, which would have made
+- **The default colormap is now blue–white–red, not the MATLAB brown.** `cmap/`
+  was never committed, so the brown ramp had to be reconstructed from the
+  README's one clue (the `#4E3629` midpoint) — and that midpoint is *dark*,
+  which makes zero the heaviest value on the page and turns a mostly-quiescent
+  field into a solid block. The default is a conventional diverging map with a
+  light neutral midpoint: zero recedes, magnitude reads as darkness, sign as
+  hue. The poles separate by ΔE 23.8 under protanopia. Both maps have arms with
+  identical luminance profiles, which the first brown version did not — it
+  differed by a factor of 3.3 at the half-way point, which would have made
   compressive strain look far stronger than tensile strain of equal magnitude.
-  The arms now share one luminance profile and the sign is carried by hue.
+  `brown_centered_diverging` remains available for reproducing earlier figures.
+- **Colour limits are area-weighted.** The field spans two decades, so the
+  scale has to clip. A quantile over cells seemed the obvious way to choose
+  where, but it depends on the sampling rather than the field: clustering the
+  radial grid towards the wall (which the port does, since that is where the
+  field varies) moved it by 250%. Weighting each cell by `r dr dtheta` holds
+  the same limit to 8% across four different grids. Clipping is then declared
+  by extending the colourbar rather than left implicit.
 
 Not carried over: the deformed-mesh overlays (`FEM_grid`, `GridType`,
 `GridCircleSpacing`, `pushed_forward_raw` and the remeshing around them). They

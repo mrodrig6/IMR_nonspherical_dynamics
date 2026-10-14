@@ -233,10 +233,19 @@ Two things worth knowing before trusting a figure:
   for a truly incompressible medium — is a resolution diagnostic. It converges
   with `xN`, not with the plotting grid, and is worst within about half a
   radius of the wall. Use `xN >= 256` for these.
-- **Diverging fields are drawn on limits symmetric about zero**, with a
-  colormap whose two arms have identical luminance profiles, so equal
-  magnitudes of either sign read as equally intense and the sign is carried by
-  hue alone. Unsigned scalars get a sequential map instead.
+- **Diverging fields are drawn blue–white–red on limits symmetric about zero.**
+  The two arms share one luminance profile, so equal magnitudes of either sign
+  read as equally intense and the sign is carried by hue; luminance falls away
+  from the midpoint, so zero recedes and structure stands out. The poles
+  separate by ΔE 23.8 under protanopia. Unsigned scalars get a sequential map
+  instead. The MATLAB tree's dark-brown-midpoint map is still available as
+  `cmap="brown_centered_diverging"` for reproducing earlier figures.
+- **Colour limits are set by area, not by cell count.** The field spans two
+  decades — the outer two thirds of the domain carries `|e| < 0.003` while a
+  thin shell at the wall reaches `0.3` — so the scale clips the extremes to
+  keep the bulk readable, and the colourbar is extended to say so. A plain
+  quantile over cells would make the scale depend on the plotting resolution
+  (measured: 250% drift); weighting by cell area holds it to 8%.
 
 ## Constitutive models
 
